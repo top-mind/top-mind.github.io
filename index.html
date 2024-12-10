@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>猜词游戏</title>
+    <style>
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            text-align: center;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+        .progress {
+            height: 100%;
+            background-color: #4CAF50;
+            border-radius: 10px;
+            transition: width 0.3s ease-in-out;
+        }
+        .history-list {
+            margin-top: 20px;
+            text-align: left;
+            padding: 10px;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.5s ease;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            animation: fadeOut 2s ease-in-out;
+        }
+        @keyframes fadeOut {
+            from { background-color: #fff3cd; }
+            to { background-color: transparent; }
+        }
+        .date-solved {
+            position: relative;
+        }
+        .date-solved::after {
+            content: "✓";
+            color: green;
+            position: absolute;
+            top: -5px;
+            right: -12px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>猜词游戏</h1>
+        <div style="margin-bottom: 20px;">
+            <input type="date" id="dateInput" onchange="updateDate()">
+        </div>
+        <div>
+            <input type="text" id="guessInput" placeholder="请输入你的猜测">
+            <button onclick="submitGuess()">提交</button>
+        </div>
+        <div id="result" class="result"></div>
+        <div class="history-list" id="historyList"></div>
+    </div>
+
+    <script>
+        // 添加回车提交功能
+        document.getElementById('guessInput').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                submitGuess();
+            }
+        });
+
+        let guessHistory = [];
+        let currentDate = '';
+        const COOKIE_PREFIX = 'wordguess_';
+        
+        // 保存历史记录到 cookie
+        function saveHistoryToCookie() {
+            const data = {
+                history: guessHistory,
+                solved: guessHistory.some(item => item.correct)
+            };
+            document.cookie = `${COOKIE_PREFIX}${currentDate}=${JSON.stringify(data)}; expires=${getExpiryDate()}; path=/`;
+        }
+
+        // 获取 cookie 过期时间（90天后）
+        function getExpiryDate() {
+            const date = new Date();
+            date.setDate(date.getDate() + 90);
+            return date.toUTCString();
+        }
+
+        // 从 cookie 加载历史记录
+        function loadHistoryFromCookie(date) {
+            const cookies = document.cookie.split(';');
+            const cookieName = `${COOKIE_PREFIX}${date}`;
+            const cookie = cookies.find(c => c.trim().startsWith(cookieName + '='));
+            
+            if (cookie) {
+                const data = JSON.parse(cookie.split('=')[1]);
+                guessHistory = data.history;
+                return data.solved;
+            }
+            return false;
+        }
+
+        // 初始化日期
+        function initializeDate() {
+            const today = new Date();
+            const dateInput = document.getElementById('dateInput');
+            dateInput.value = today.toISOString().split('T')[0];
+            currentDate = dateInput.value.replace(/-/g, '');
+            updateDateDisplay();
+        }
+
+        // 更新日期显示和历史记录
+        function updateDate() {
+            const dateInput = document.getElementById('dateInput');
+            currentDate = dateInput.value.replace(/-/g, '');
+            guessHistory = [];
+            const solved = loadHistoryFromCookie(currentDate);
+            if (solved) {
+                dateInput.classList.add('date-solved');
+            } else {
+                dateInput.classList.remove('date-solved');
+            }
+            displayHistory();
+        }
+
+        // 更新日期显示（包括已解决标记）
+        function updateDateDisplay() {
+            const dateInput = document.getElementById('dateInput');
+            const solved = loadHistoryFromCookie(currentDate);
+            if (solved) {
+                dateInput.classList.add('date-solved');
+            } else {
+                dateInput.classList.remove('date-solved');
+            }
+            displayHistory();
+        }
+
+        async function submitGuess() {
+            const guess = document.getElementById('guessInput').value;
+            if (!guess) {
+                alert('请输入猜测的词语！');
+                return;
+            }
+
+            // 检查是否重复猜测
+            const existingGuess = guessHistory.find(item => item.word === guess);
+            if (existingGuess) {
+                highlightExistingGuess(guess);
+                document.getElementById('guessInput').value = '';
+                return;
+            }
+
+            try {
+                const response = await fetch(`https://xiaoce.fun/api/v0/quiz/daily/GuessWord/guess?date=${currentDate}&word=${encodeURIComponent(guess)}`);
+                const data = await response.json();
+                displayResult(data);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('提交失败，请重试！');
+            }
+        }
+
+        function highlightExistingGuess(guess) {
+            // 移除所有现有的高亮
+            document.querySelectorAll('.history-item').forEach(item => {
+                item.classList.remove('highlight');
+            });
+            
+            // 找到并高亮对应的词语
+            const items = document.querySelectorAll('.history-item');
+            items.forEach(item => {
+                if (item.querySelector('span').textContent === guess) {
+                    item.classList.add('highlight');
+                }
+            });
+        }
+
+        function displayResult(data) {
+            const resultDiv = document.getElementById('result');
+            const guess = document.getElementById('guessInput').value;
+            
+            guessHistory.push({
+                word: guess,
+                doubleScore: data.doubleScore,
+                correct: data.correct
+            });
+
+            // 保存到 cookie
+            saveHistoryToCookie();
+            
+            // 如果猜对了，更新日期显示
+            if (data.correct) {
+                document.getElementById('dateInput').classList.add('date-solved');
+            }
+
+            guessHistory.sort((a, b) => b.doubleScore - a.doubleScore);
+            displayHistory();
+
+            if (data.correct) {
+                resultDiv.innerHTML = `<h3 style="color: green">恭喜你猜对了！</h3>`;
+            } else {
+                resultDiv.innerHTML = '';
+            }
+            
+            document.getElementById('guessInput').value = '';
+        }
+
+        // 显示历史记录
+        function displayHistory() {
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '<h3>历史记录</h3>';
+            guessHistory.forEach((item, index) => {
+                historyList.innerHTML += `
+                    <div class="history-item">
+                        <span>${item.word}</span>
+                        <span>${(item.doubleScore * 100).toFixed(2)}%</span>
+                    </div>
+                `;
+            });
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            initializeDate();
+            loadHistoryFromCookie(currentDate);
+            displayHistory();
+        };
+    </script>
+</body>
+</html>
