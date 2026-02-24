@@ -1,4 +1,17 @@
-From Stdlib Require Import PeanoNat Nat Lia.
+(** misc.v v0.2 
+ * Problem: prove that there is no way to partition the integers greater than
+   or equal to 2025 into good numbers and bad numbers such that the product of
+   any two distinct good numbers is a bad number, and no two bad numbers are
+   adjacent.
+   不存在一种方案，能把 >= 2025 的整数划分为好数和坏数，使得任意两个不同好数之积是坏数，且任意两个坏数不相邻。
+ * This is a secondary-school-level problem from Baidu tieba (https://tieba.baidu.com/p/10161855656?share=9105&fr=sharewise&see_lz=0&share_from=post&sfc=copy&client_type=2&client_version=22.1.1.0&st=1771952252&is_video=false&unique=A7FBBC8EC8C1076BA0066660C62B9669)
+   Due 2026/2/24, there is no LLM other than GPT-5.2(xhigh) and Gemini 3 Pro that can solve this problem
+   (i've not tested Claude Opus 4.6).
+   Deepseek 3.2 Speciale, Qwen 3.5 Plus, GLM 5, Kimi K2.5 failed.
+ * This is a more clever proof inspired by Gemini 3.1 pro
+ *)
+
+From Stdlib Require Import Lia.
 
 Parameter N : nat.
 
@@ -12,87 +25,62 @@ Axiom prop2 : forall n, n >= N ->
   good n = false ->
   good (1 + n) = true.
 
-Lemma lemma1 : forall n1, n1 >= N -> exists n2, n2 >= n1 /\ good n2 = true.
-Proof.
-  intros.
-  destruct (good n1) eqn:E.
-  - exists n1; auto.
-  - apply prop2 in E; auto.
-    exists (1 + n1); auto.
-Qed.
+Ltac make_true n1 n2 :=
+  assert (good (1+n1*n2) = true) by (apply prop2; auto; try nia; apply prop1; auto; try nia).
 
-Definition good_even n := if good n then even n else odd n.
+Ltac make_false n1 n2 :=
+  assert (good (n1*n2) = false) by (apply prop1; auto; try nia).
 
-Lemma mean_value : forall f b n1 n2,
-  n1 < n2 ->
-  f n1 = b -> f n2 = negb b ->
-  exists n3, n1 <= n3 /\ n3 < n2 /\ f n3 = b /\ f (S n3) = negb b.
-Proof with try lia; try tauto.
-  induction n2; try lia; intros.
-  destruct (f n2) eqn:E, b; try (exists n2; repeat split; try lia; auto; fail).
-  all: assert (n1 <> n2) by (intros Hc; subst; rewrite E in H0; discriminate).
-  all: destruct IHn2...
-  all: exists x; repeat split...
-Qed.
-
-Ltac make_false H1 H2 H :=
-  match type of H1 with
-  | good ?n1 = true =>
-    match type of H2 with
-    | good ?n2 = true =>
-      assert (H: good (n1 * n2) = false) by (apply prop1; auto; lia)
-    end
-  end.
-
-Ltac make_true H1 H2 H Ht :=
-    make_false H1 H2 Ht;
-    match type of Ht with
-    | good ?n = false =>
-      assert (H: good (1 + n) = true);
-      try (apply prop2; auto; try lia)
-    end; clear Ht.
-
-Ltac take H n0 :=
-  match type of H with
-  | good ?n = _ => remember n as n0
-  end.
-
-Lemma lemma2 : exists n, n > N /\ good n = true /\ good (1 + n) = true.
+Lemma lemma1 : forall n, n > N -> good n = true -> good (S n) = false.
 Proof with auto; try lia.
-  destruct (lemma1 (1 + N)) as [n1 [? Hn1]]...
-  destruct (good (1 + n1)) eqn:?H.
-  - exists n1...
-  - apply prop2 in H0...
-    make_true Hn1 H0 H1 U.
-    take H1 n2.
-    destruct (mean_value good_even (even n1) n1 n2) as [n3 [? [_ [? ?]]]]
-    ; unfold good_even in *;
-      try rewrite Hn1; try rewrite H1...
-    subst. rewrite Nat.even_succ, Nat.odd_mul, Nat.odd_succ_succ, Nat.negb_even.
-    destruct (odd n1)...
-    destruct (good n3) eqn:E.
-    + exists n3. repeat split... simpl.
-      destruct (good (S n3))...
-      rewrite Nat.odd_succ, H3 in H4.
-      destruct (even n1)...
-    + apply prop2 in E... simpl in E.
-      rewrite E in H4. rewrite Nat.even_succ, H3 in H4.
-      destruct (even n1)...
+  intros.
+  destruct (good (S n)) eqn:GS... exfalso.
+  destruct (good (S (S n))) eqn:GSS.
+  1: remember (S (S n)) as m.
+  2: assert (HH:good (1+S (S n)) = true) by (apply prop2; auto; lia);
+     remember (1 + S (S n)) as m.
+  all: make_true n m;
+    make_true (S n) m;
+    make_false n (1+S n*m);
+    make_false (S n) (1+n*m);
+    assert (false = true) by (
+      rewrite <-H4; replace (S n * (1 + n * m)) with (1+(n * (1 + S n * m))) by lia;
+      apply prop2; auto; lia
+    );
+    congruence.
+Qed.
+
+Lemma lemma2 : (forall n, n > N -> good n = true -> good (S n) = false) -> False.
+Proof with auto; try lia.
+  intros H.
+  assert (forall i n, n > N -> good n = true -> good (i + i + n) = true).
+  {
+    induction i; intros; auto.
+    replace (S i + S i + n) with (2 + (i + i + n)) by lia.
+    apply prop2...
+    apply H...
+  }
+  remember (1 + N) as M.
+  destruct (good (2 * M)) eqn:GN.
+  - assert (good (1 + 1 + 2 * M) = true). { apply H0... }
+    make_false (2 * M) (2 + 2 * M).
+    assert (false = true). {
+      rewrite <-H2.
+      replace (2 * M * (2 + 2 * M)) with (M*(2*M+1)+M*(2*M+1)+2*M) by lia.
+      apply H0...
+    } congruence.
+  - assert (good (1 + 2 * M) = true). { apply prop2... }
+    assert (good (1 + 1 + (1 + 2 * M)) = true). { apply H0... }
+    make_false (1 + 2 * M) (1 + 1 + (1 + 2 * M)).
+    assert (false = true). {
+      rewrite <-H3.
+      replace ((1 + 2 * M) * (1 + 1 + (1 + 2 * M))) with
+      ((M+1)*(2*M+1)+(M+1)*(2*M+1)+(1+2*M)) by lia.
+      apply H0...
+    } congruence.
 Qed.
 
 Theorem main : False.
-Proof with auto; try lia.
-  destruct lemma2 as [n1 [? [Hn1 HSn1]]].
-  destruct (lemma1 (2 + n1)) as [n2 [? Hn2]]...
-  make_true Hn1 Hn2 H1 U. destruct n2...
-  make_true HSn1 Hn2 H2 U.
-  make_false Hn1 H2 H3.
-  assert (H4: good ((1 + n1) * (1 + n1 * n2)) = false).
-  {
-    apply prop1; destruct n1...
-  }
-  take H3 n3. take H4 n4.
-  replace n4 with (1 + n3) in H4...
-  apply prop2 in H3...
-  rewrite H3 in H4. discriminate.
+Proof.
+  apply lemma2, lemma1.
 Qed.
